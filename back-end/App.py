@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
 import flask
+import os
 from flask_cors import CORS
 from RAG_beta import RAGSystem
 
 app = flask.Flask(__name__)
 CORS(app)
 
-rag_system = RAGSystem(api_key="")
+rag_system = RAGSystem(api_key=os.getenv("OPENAI_API_KEY"))
 rag_system.store_embeddings("https://en.wikipedia.org/wiki/ISO_New_England")
 
 @app.route("/")
