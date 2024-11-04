@@ -4,7 +4,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
+from langchain.chains import RetrievalQAWithSourcesChain
 
 class RAGSystem:
     def __init__(self, api_key, model_name="gpt-4o-mini"):
@@ -32,12 +32,18 @@ class RAGSystem:
             raise ValueError("Embeddings must be stored before querying.")
         
         # Create the retrieval chain
-        retrieval_chain = RetrievalQA.from_chain_type(llm=self.llm, retriever=self.retriever)
-        
-        # Retrieve information
+        retrieval_chain = RetrievalQAWithSourcesChain.from_chain_type(
+            llm=self.llm,
+            retriever=self.retriever,
+            return_source_documents=True
+        )        # Retrieve information
         response_dict = retrieval_chain({"query": user_query})
         assistant_response = response_dict['result']
-        return assistant_response  # This will be the assistant's response as a string
+
+        sources = response_dict['sources']
+        source_documents = response_dict['source_documents']
+
+        return assistant_response, sources, source_documents  # This will be the assistant's response as a string
 
 # Example usage
 if __name__ == "__main__":
@@ -50,4 +56,6 @@ if __name__ == "__main__":
     # Get user input and retrieve information
     user_query = input("Please enter your query: ")
     response = rag_system.get_response(user_query)
-    print(response)
+    print(response[0])
+    print(response[1])
+    print(response[2])
