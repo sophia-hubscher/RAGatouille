@@ -1,4 +1,8 @@
 #Dataset Interface:
+import math
+import statistics
+
+
 def getRow(index: int, table) -> tuple:
     """
     :param index: int (row number)
@@ -84,7 +88,6 @@ def f1_at_k(retrieved: list, relevant: list, k: int) -> float:
     assert k > 0, "k must be greater than 0"
     return f1(retrieved[:k], relevant)
 
-
 #generation metrics:
 def accuracy(generated: str, correct: str):
     return 0
@@ -143,5 +146,12 @@ if __name__ == "__main__":
     results: list[dict] = eval(table)
 
     #do whatever you need to with the results here
+    mean_recall = statistics.mean([result["recall"] for result in results])
+    mean_accuracy = statistics.mean([result["accuracy"] for result in results])
+    mean_relevance = statistics.mean([result["relevance"] for result in results])
+    mean_groundedness= statistics.mean([result["groundedness"] for result in results])
+    mean_recall_at_1 = statistics.mean([result["recall_at_k"][0] for result in results])
+
+    #idk send them somewhere I guess?
 
     exit(0)
