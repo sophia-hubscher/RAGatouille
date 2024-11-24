@@ -86,7 +86,7 @@ const App = () => {
         body: JSON.stringify({ user_query: user_query }), // Change this line
       }); 
       const data = await response.json();
-      return data.retrievedInfo;
+      return data.answer; // Access the 'answer' key from the response
     } catch (error) {
       console.error('Error fetching retrieved info:', error);
       return 'Sorry, there was an error retrieving the information.';
@@ -100,10 +100,15 @@ const App = () => {
       setMessages([userMessage, ...messages]);
       setUserInput('');
 
-      // Fetch retrieved information from the back-end
-      const retrievedInfo = await fetchRetrievedInfo(userInput);
-      const botMessage = { text: retrievedInfo, isBot: true };
-      setMessages((prevMessages) => [botMessage, ...prevMessages]);
+      try {
+        // Fetch retrieved information from the back-end
+        const retrievedInfo = await fetchRetrievedInfo(userInput);
+        const botMessage = { text: retrievedInfo, isBot: true };
+        setMessages((prevMessages) => [botMessage, ...prevMessages]);
+      } catch (error) {
+        const errorMessage = { text: 'Error sending message. Please try again.', isBot: true };
+        setMessages((prevMessages) => [errorMessage, ...prevMessages]);
+      }
     }
   };
 
@@ -122,7 +127,12 @@ const App = () => {
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
           placeholder="Type your message..."
-          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSendMessage();
+            }
+          }}
         />
         <SendButton onClick={handleSendMessage}>Send</SendButton>
       </InputContainer>

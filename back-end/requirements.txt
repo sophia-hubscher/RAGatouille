@@ -3,3 +3,8 @@ langchain_openai
 chromadb
 flask
 beautifulsoup4
+langchain
+PyPDF2
+tiktoken
+openai
+flask_cors
