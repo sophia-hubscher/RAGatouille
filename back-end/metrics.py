@@ -2,13 +2,16 @@
 import math
 import statistics
 import pandas as pd
-class Metrics:
+import openai
+from metrics_config import accuracy_prompt, relevance_prompt, groundedness_prompt
 
+class Metrics:
 
     #you only need to worry about init, eval_row, and macro_metrics. Ignore the rest.
 
     def __init__(self):
         self.results = []
+        self.open_ai = openai.OpenAI()
 
     def precision(self, retrieved: list, relevant: list) -> float:
         if len(retrieved) == 0: return 0
@@ -51,15 +54,54 @@ class Metrics:
         return (2 * p * r) / denominator
 
     #generation metrics:
-    def accuracy(self, generated: str, correct: str):
-        #TODO: Prompt template and LLM Call
-        return 0
-    def relevance(self, generated: str, ground_truth: list):
-        #TODO: Prompt template and LLM Call
-        return 0
-    def groundedness(generated: str, retrieved: list):
-        #TODO: Prompt template and LLM Call
-        return 0
+    def accuracy(self, generated: str, correct: str) -> float:
+        response = self.open_ai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                "role": "system",
+                "content": accuracy_prompt
+                },
+                {
+                "role": "user",
+                "content": "llm generated answer: " + generated + "\n correct answer: " + correct
+                }
+            ]
+        )
+        accuracy = int(response.choices[0].message.content[0])
+        return accuracy/5
+    def relevance(self, generated: str, ground_truth: list) -> float:
+        response = self.open_ai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": relevance_prompt
+                },
+                {
+                    "role": "user",
+                    "content": "llm generated answer: " + generated + "\n  ground truth: " + ground_truth
+                }
+            ]
+        )
+        relevance = int(response.choices[0].message.content[0])
+        return relevance / 5
+    def groundedness(self, generated: str, retrieved: list) -> float:
+        response = self.open_ai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": groundedness_prompt
+                },
+                {
+                    "role": "user",
+                    "content": "llm generated answer: " + generated + "\n   retrieved context: " + "".join(retrieved)
+                }
+            ]
+        )
+        groundedness = int(response.choices[0].message.content[0])
+        return groundedness / 5
 
     #running eval:
     def eval_row(
