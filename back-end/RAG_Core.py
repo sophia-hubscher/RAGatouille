@@ -1,129 +1,124 @@
 #!/usr/bin/env python3
-from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_chroma import Chroma
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
+import openai
+import logging
+import traceback
+import uuid
+import ast
+
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from azure.core.credentials import AzureKeyCredential
+from azure.search.documents import SearchClient
+
+class AzureCognitiveSearchRetriever:
+    """
+    A retriever to query Azure Cognitive Search vector index.
+    """
+    def __init__(self, search_client, embedding_fn, k=5):
+        self.search_client = search_client
+        self.embedding_fn = embedding_fn
+        self.k = k
+
+    def get_relevant_documents(self, query):
+        # Generate the query embedding
+
+        # Perform vector search
+        results = self.search_client.search(
+            search_text=query,  # Empty for pure vector search
+            top=self.k,
+            include_total_count=True
+        )
+
+        # Parse results into a list of documents
+        docs = []
+        for result in results:
+            doc = {
+                "page_content": result["chunk"],  # Use the 'chunk' field for content
+                "metadata": {
+                    "chunk_id": result.get("chunk_id"),
+                    "parent_id": result.get("parent_id"),
+                    "title": result.get("title")
+                }
+            }
+            docs.append(doc)
+
+        return docs
 
 class PDFRAGSystem:
-    def __init__(self, api_key, model_name="gpt-4o-mini"):
+    def __init__(self, api_key, search_endpoint, search_api_key, index_name, model_name="gpt-4o-mini"):
         self.api_key = api_key
         self.model_name = model_name
+
+        # Initialize embeddings and LLM
         self.embeddings = OpenAIEmbeddings(openai_api_key=self.api_key)
         self.llm = ChatOpenAI(
             model_name=self.model_name,
             openai_api_key=self.api_key,
             temperature=0
         )
-        self.vector_store = None
-        self.retriever = None
 
-    def load_pdfs(self, pdf_directory="downloaded_pdfs"):
-        """Load PDFs from the specified directory and its subdirectories."""
-        persist_directory = "chroma_db"
-        try:
-            if os.path.exists(persist_directory):
-                # Load existing vector store
-                self.vector_store = Chroma(
-                    persist_directory=persist_directory,
-                    embedding_function=self.embeddings
-                )
-                self.retriever = self.vector_store.as_retriever(
-                    search_kwargs={"k": 5}
-                )
-                return "Successfully loaded existing embeddings from disk."
-            else:
-                # Create text splitter for chunking
-                text_splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1000,
-                    chunk_overlap=200,
-                    length_function=len,
-                )
+        # Azure Cognitive Search Clients
+        self.search_endpoint = search_endpoint
+        self.search_api_key = search_api_key
+        self.index_name = index_name
 
-                # Load all PDFs from directory and subdirectories
-                loader = DirectoryLoader(
-                    pdf_directory,
-                    glob="**/*.pdf",
-                    loader_cls=PyPDFLoader
-                )
-                print(f"Loading PDFs from {pdf_directory}...")
-                try:
-                    documents = loader.load()
-                    print(f"Loaded {len(documents)} documents.")
-                except Exception as e:
-                    print(f"Error loading documents: {str(e)}")
-                    return f"Error loading documents: {str(e)}"
+        self.search_client = SearchClient(
+            endpoint=self.search_endpoint,
+            index_name=self.index_name,
+            credential=AzureKeyCredential(self.search_api_key)
+        )
 
-                # Split documents into chunks
-                split_documents = text_splitter.split_documents(documents)
-
-                # Create vector store
-                self.vector_store = Chroma.from_documents(
-                    documents=split_documents,
-                    embedding=self.embeddings,
-                    persist_directory=persist_directory
-                )
-
-                # Set up retriever
-                self.retriever = self.vector_store.as_retriever(
-                    search_kwargs={"k": 10}
-                )
-
-                return f"Successfully processed {len(documents)} PDFs"
-
-        except Exception as e:
-            return f"Error processing PDFs: {str(e)}"
+        # Initialize the retriever
+        self.retriever = AzureCognitiveSearchRetriever(
+            search_client=self.search_client,
+            embedding_fn=self.embeddings.embed_documents,
+            k=5
+        )
 
     def get_response(self, user_query):
-        """Get response for user query using RAG."""
-        if not self.retriever:
-            raise ValueError("PDFs must be processed before querying.")
-
+        """Get response for a user query using the vectorized data from Azure Cognitive Search."""
         try:
-            # Create the retrieval chain with custom prompt
-            template = """You are an AI chatbot helping with questions about ISO New England and related energy policies.
-            Use the following context to answer the question. If you don't know or can't find the answer in the context,
-            say so - don't make up information.
+            # Retrieve relevant documents
+            relevant_docs = self.retriever.get_relevant_documents(user_query)
+            print(f"Found {len(relevant_docs)} relevant documents.")
+            print(relevant_docs)
 
-            Context: {context}
+            # Build the context from the retrieved documents
+            context = "\n\n".join([doc["page_content"] for doc in relevant_docs])
 
-            Question: {question}
+            # Construct the prompt
+            prompt = f"""You are a helpful AI assistant. Use the following context to answer the question.
+            If you cannot find the answer in the context, say so - don't make up information.
+
+            Context:
+            {context}
+
+            Question:
+            {user_query}
+
+            Answer:
             """
 
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=self.llm,
-                retriever=self.retriever,
-                chain_type="stuff",
-                return_source_documents=True,
-                chain_type_kwargs={
-                    "prompt": PromptTemplate(
-                        template=template,
-                        input_variables=["context", "question"]
-                    ),
-                }
-            )
+            # Call the LLM
+            response = self.llm(prompt)
+            answer = response.content.strip()
 
-            # Get response
-            response = qa_chain({"query": user_query})
-
-            # Format response with sources
-            answer = response['result']
+            # Extract source filenames (if available in metadata)
             sources = []
-            for doc in response['source_documents']:
-                if 'source' in doc.metadata:
-                    sources.append(doc.metadata['source'])
-            print(f"Answer: {answer}")
+            for doc in relevant_docs:
+                meta = doc["metadata"]
+                if isinstance(meta, str):
+                    meta = ast.literal_eval(meta)
+                if "source" in meta:
+                    sources.append(meta["source"])
+
             return {
                 "answer": answer,
                 "sources": list(set(sources))
             }
+
         except Exception as e:
-            # Print the exception to the console for debugging
-            import traceback
             print("Exception in get_response:", traceback.format_exc())
-            print(sources)
             return {
                 "answer": "Sorry, there was an error processing your request.",
                 "sources": [],
