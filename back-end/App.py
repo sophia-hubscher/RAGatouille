@@ -7,7 +7,7 @@ from RAG_Core import PDFRAGSystem
 
 app = flask.Flask(__name__)
 CORS(app)
-rag_system = PDFRAGSystem(api_key=os.getenv("OPENAI_API_KEY"))
+rag_system = PDFRAGSystem(api_key=os.getenv("OPENAI_API_KEY"), search_endpoint=os.getenv("SEARCH_ENDPOINT"), search_api_key=os.getenv("SEARCH_API_KEY"), index_name=os.getenv("INDEX_NAME"))
 
 
 @app.route("/")
@@ -50,8 +50,6 @@ def retrieve():
 if __name__ == "__main__":
     try:
         print("Initializing RAG system...")
-        rag_system.load_pdfs()
-        print("RAG system initialized")
     except Exception as e:
         print(f"Error initializing RAG system: {str(e)}")
     app.run(debug=True, port=5000)
