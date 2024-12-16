@@ -109,9 +109,7 @@ class PDFRAGSystem:
                 meta = doc["metadata"]
                 if isinstance(meta, str):
                     meta = ast.literal_eval(meta)
-                if "source" in meta:
-                    sources.append(meta["source"])
-
+                sources.append(doc["page_content"])
             return {
                 "answer": answer,
                 "sources": list(set(sources))
